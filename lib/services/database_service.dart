@@ -14,7 +14,6 @@ class DatabaseService {
     try {
       await _firestore.collection('users').doc(user.uid).set(user.toMap());
     } catch (e) {
-      print('Error creating user document: $e');
       throw e;
     }
   }
@@ -24,23 +23,17 @@ class DatabaseService {
     String userId,
     String userName,
     String text,
-    File? imageFile,
+    String? imageBase64,
   ) async {
     try {
       String postId = _firestore.collection('posts').doc().id;
-      String? imageUrl;
-
-      // Upload image if provided
-      if (imageFile != null) {
-        imageUrl = await _uploadImage(imageFile, 'posts/$postId');
-      }
 
       PostModel post = PostModel(
         postId: postId,
         userId: userId,
         userName: userName,
         text: text,
-        imageUrl: imageUrl,
+        imageUrl: imageBase64, // Store base64 directly instead of uploading
         likes: [],
         commentCount: 0,
         createdAt: DateTime.now(),
@@ -48,7 +41,6 @@ class DatabaseService {
 
       await _firestore.collection('posts').doc(postId).set(post.toMap());
     } catch (e) {
-      print('Error creating post: $e');
       throw e;
     }
   }
@@ -103,7 +95,6 @@ class DatabaseService {
         }
       });
     } catch (e) {
-      print('Error toggling like: $e');
       throw e;
     }
   }
@@ -145,7 +136,26 @@ class DatabaseService {
         'commentCount': FieldValue.increment(1),
       });
     } catch (e) {
-      print('Error adding comment: $e');
+      throw e;
+    }
+  }
+
+  // Delete a comment
+  Future<void> deleteComment(String postId, String commentId) async {
+    try {
+      // Delete the comment document
+      await _firestore
+          .collection('posts')
+          .doc(postId)
+          .collection('comments')
+          .doc(commentId)
+          .delete();
+
+      // Update comment count (decrement)
+      await _firestore.collection('posts').doc(postId).update({
+        'commentCount': FieldValue.increment(-1),
+      });
+    } catch (e) {
       throw e;
     }
   }
@@ -195,7 +205,6 @@ class DatabaseService {
       return allResults.toList()
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     } catch (e) {
-      print('Error searching posts: $e');
       return [];
     }
   }
@@ -208,12 +217,21 @@ class DatabaseService {
       TaskSnapshot snapshot = await uploadTask;
       return await snapshot.ref.getDownloadURL();
     } catch (e) {
-      print('Error uploading image: $e');
       throw e;
     }
   }
 
-  // Upload profile picture
+  // Upload profile picture (base64)
+  Future<String> uploadProfilePictureBase64(String base64Data) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw Exception('User not authenticated');
+
+    // For profile pictures, we'll store base64 directly in user document
+    // instead of uploading to Firebase Storage
+    return base64Data;
+  }
+
+  // Upload profile picture (file - legacy support)
   Future<String> uploadProfilePicture(File imageFile) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw Exception('User not authenticated');
@@ -229,7 +247,31 @@ class DatabaseService {
     try {
       await _firestore.collection('users').doc(userId).update(data);
     } catch (e) {
-      print('Error updating user profile: $e');
+      throw e;
+    }
+  }
+
+  // Delete a post
+  Future<void> deletePost(String postId) async {
+    try {
+      final batch = _firestore.batch();
+
+      // Delete the post document
+      batch.delete(_firestore.collection('posts').doc(postId));
+
+      // Delete all comments associated with this post
+      final commentsSnapshot = await _firestore
+          .collection('comments')
+          .where('postId', isEqualTo: postId)
+          .get();
+
+      for (final commentDoc in commentsSnapshot.docs) {
+        batch.delete(commentDoc.reference);
+      }
+
+      // Commit the batch operation
+      await batch.commit();
+    } catch (e) {
       throw e;
     }
   }

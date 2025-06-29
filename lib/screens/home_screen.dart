@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:convert';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../models/user_model.dart';
@@ -78,6 +79,79 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
+  }
+
+  Widget _buildDrawerAvatar() {
+    if (_currentUser?.profilePicture == null) {
+      return Text(
+        _currentUser?.initials ?? 'U',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
+      );
+    }
+
+    try {
+      final imageData = _currentUser!.profilePicture!;
+
+      // Check if it's a base64 string (doesn't start with http)
+      if (!imageData.startsWith('http')) {
+        // Handle base64 image
+        String base64String = imageData;
+        if (imageData.contains(',')) {
+          base64String = imageData.split(',')[1];
+        }
+        return ClipOval(
+          child: Image.memory(
+            base64Decode(base64String),
+            width: 60,
+            height: 60,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => Text(
+              _currentUser?.initials ?? 'U',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        );
+      } else {
+        // Handle network URL (fallback for existing images)
+        return ClipOval(
+          child: Image.network(
+            imageData,
+            width: 60,
+            height: 60,
+            fit: BoxFit.cover,
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) return child;
+              return const CircularProgressIndicator();
+            },
+            errorBuilder: (context, error, stackTrace) => Text(
+              _currentUser?.initials ?? 'U',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      return Text(
+        _currentUser?.initials ?? 'U',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
+      );
+    }
   }
 
   @override
@@ -194,19 +268,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 CircleAvatar(
                   radius: 30,
                   backgroundColor: Theme.of(context).primaryColor,
-                  backgroundImage: _currentUser?.profilePicture != null
-                      ? NetworkImage(_currentUser!.profilePicture!)
-                      : null,
-                  child: _currentUser?.profilePicture == null
-                      ? Text(
-                          _currentUser?.initials ?? 'U',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        )
-                      : null,
+                  child: _buildDrawerAvatar(),
                 ),
                 const SizedBox(height: 10),
                 Text(
@@ -230,7 +292,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.8),
+                        color: Colors.orange.withValues(alpha: 0.8),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: const Text(
@@ -245,13 +307,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
               ],
             ),
-          ),
-          ListTile(
-            leading: Icon(Icons.home, color: Theme.of(context).primaryColor),
-            title: const Text('Home'),
-            onTap: () {
-              Navigator.pop(context); // Close drawer
-            },
           ),
           ListTile(
             leading: Icon(Icons.person, color: Theme.of(context).primaryColor),

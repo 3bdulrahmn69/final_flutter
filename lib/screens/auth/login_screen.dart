@@ -41,29 +41,25 @@ class _LoginScreenState extends State<LoginScreen> {
       });
 
       try {
-        final result = await _authService.signInWithEmailPassword(
+        await _authService.signInWithEmailPassword(
           _emailController.text.trim(),
           _passwordController.text,
         );
 
         if (!mounted) return;
 
-        if (result != null) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => HomeScreen(
-                toggleTheme: widget.toggleTheme,
-                isDarkMode: widget.isDarkMode,
-              ),
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => HomeScreen(
+              toggleTheme: widget.toggleTheme,
+              isDarkMode: widget.isDarkMode,
             ),
-          );
-        } else {
-          _showErrorSnackbar('Invalid email or password');
-        }
+          ),
+        );
       } catch (e) {
         if (mounted) {
-          _showErrorSnackbar('Login failed: ${e.toString()}');
+          _showErrorSnackbar(e.toString());
         }
       }
 
@@ -154,7 +150,21 @@ class _LoginScreenState extends State<LoginScreen> {
   void _showErrorSnackbar(String message) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), backgroundColor: Colors.red),
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error_outline, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(message, style: const TextStyle(fontSize: 14)),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
       );
     }
   }
@@ -173,7 +183,7 @@ class _LoginScreenState extends State<LoginScreen> {
               children: [
                 const SizedBox(height: 50),
                 // App Logo
-                Container(
+                SizedBox(
                   height: 100,
                   child: Icon(
                     Icons.people,

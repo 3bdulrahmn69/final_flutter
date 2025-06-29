@@ -44,9 +44,21 @@ class AuthService {
       );
 
       return result;
+    } on FirebaseAuthException catch (e) {
+      switch (e.code) {
+        case 'email-already-in-use':
+          throw 'This email is already registered. Please use a different email or try signing in.';
+        case 'weak-password':
+          throw 'The password is too weak. Please choose a stronger password.';
+        case 'invalid-email':
+          throw 'The email address is not valid. Please enter a valid email.';
+        case 'operation-not-allowed':
+          throw 'Email/password accounts are not enabled. Please contact support.';
+        default:
+          throw 'Registration failed: ${e.message}';
+      }
     } catch (e) {
-      print('Registration error: $e');
-      return null;
+      throw 'An unexpected error occurred. Please try again.';
     }
   }
 
@@ -61,9 +73,23 @@ class AuthService {
         password: password,
       );
       return result;
+    } on FirebaseAuthException catch (e) {
+      switch (e.code) {
+        case 'user-not-found':
+          throw 'No account found with this email. Please check your email or register first.';
+        case 'wrong-password':
+          throw 'Incorrect password. Please try again.';
+        case 'invalid-email':
+          throw 'The email address is not valid. Please enter a valid email.';
+        case 'user-disabled':
+          throw 'This account has been disabled. Please contact support.';
+        case 'too-many-requests':
+          throw 'Too many failed attempts. Please try again later.';
+        default:
+          throw 'Sign in failed: ${e.message}';
+      }
     } catch (e) {
-      print('Sign in error: $e');
-      return null;
+      throw 'An unexpected error occurred. Please try again.';
     }
   }
 
@@ -96,7 +122,6 @@ class AuthService {
 
       return result;
     } catch (e) {
-      print('Google sign in error: $e');
       return null;
     }
   }

@@ -7,10 +7,10 @@ class RegisterScreen extends StatefulWidget {
   final bool isDarkMode;
 
   const RegisterScreen({
-    Key? key,
+    super.key,
     required this.toggleTheme,
     required this.isDarkMode,
-  }) : super(key: key);
+  });
 
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
@@ -52,7 +52,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       });
 
       try {
-        final result = await _authService.registerWithEmailPassword(
+        await _authService.registerWithEmailPassword(
           _emailController.text.trim(),
           _passwordController.text,
           _firstNameController.text.trim(),
@@ -63,22 +63,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
         if (!mounted) return;
 
-        if (result != null) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => HomeScreen(
-                toggleTheme: widget.toggleTheme,
-                isDarkMode: widget.isDarkMode,
-              ),
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => HomeScreen(
+              toggleTheme: widget.toggleTheme,
+              isDarkMode: widget.isDarkMode,
             ),
-          );
-        } else {
-          _showErrorSnackbar('Registration failed. Please try again.');
-        }
+          ),
+        );
       } catch (e) {
         if (mounted) {
-          _showErrorSnackbar('Registration error: ${e.toString()}');
+          _showErrorSnackbar(e.toString());
         }
       }
 
@@ -93,7 +89,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void _showErrorSnackbar(String message) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), backgroundColor: Colors.red),
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error_outline, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(message, style: const TextStyle(fontSize: 14)),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
       );
     }
   }

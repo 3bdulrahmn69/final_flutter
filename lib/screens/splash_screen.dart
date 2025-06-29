@@ -101,7 +101,7 @@ class _SplashScreenState extends State<SplashScreen>
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
+                        color: Colors.black.withValues(alpha:0.2),
                         blurRadius: 10,
                         spreadRadius: 2,
                       ),
@@ -127,7 +127,7 @@ class _SplashScreenState extends State<SplashScreen>
                     shadows: [
                       Shadow(
                         blurRadius: 10.0,
-                        color: Colors.black.withOpacity(0.5),
+                        color: Colors.black.withValues(alpha:0.5),
                         offset: Offset(2.0, 2.0),
                       ),
                     ],
@@ -139,12 +139,12 @@ class _SplashScreenState extends State<SplashScreen>
                   'Connect • Share • Inspire',
                   style: TextStyle(
                     fontSize: 16,
-                    color: Colors.white.withOpacity(0.9),
+                    color: Colors.white.withValues(alpha:0.9),
                     letterSpacing: 0.5,
                     shadows: [
                       Shadow(
                         blurRadius: 8.0,
-                        color: Colors.black.withOpacity(0.3),
+                        color: Colors.black.withValues(alpha:0.3),
                         offset: Offset(1.0, 1.0),
                       ),
                     ],

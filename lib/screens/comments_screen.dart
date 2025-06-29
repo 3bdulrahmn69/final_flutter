@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import '../models/post_model.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
@@ -87,6 +88,55 @@ class _CommentsScreenState extends State<CommentsScreen> {
     });
   }
 
+  Future<void> _deleteComment(String commentId) async {
+    // Show confirmation dialog
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Delete Comment'),
+          content: const Text(
+            'Are you sure you want to delete this comment? This action cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      try {
+        await _databaseService.deleteComment(widget.post.postId, commentId);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Comment deleted successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error deleting comment: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
   String _getTimeAgo(DateTime dateTime) {
     final now = DateTime.now();
     final difference = now.difference(dateTime);
@@ -99,6 +149,123 @@ class _CommentsScreenState extends State<CommentsScreen> {
       return '${difference.inMinutes}m ago';
     } else {
       return 'Just now';
+    }
+  }
+
+  Widget _buildUserAvatar(
+    String userId,
+    String userName, {
+    double radius = 18,
+  }) {
+    return FutureBuilder<UserModel?>(
+      future: _authService.getUserData(userId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return CircleAvatar(
+            radius: radius,
+            child: Text(
+              userName.isNotEmpty ? userName[0].toUpperCase() : 'U',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: radius * 0.7,
+              ),
+            ),
+          );
+        }
+
+        final user = snapshot.data;
+        if (user?.profilePicture == null) {
+          return CircleAvatar(
+            radius: radius,
+            child: Text(
+              userName.isNotEmpty ? userName[0].toUpperCase() : 'U',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: radius * 0.7,
+              ),
+            ),
+          );
+        }
+
+        try {
+          final imageData = user!.profilePicture!;
+
+          // Check if it's a base64 string (doesn't start with http)
+          if (!imageData.startsWith('http')) {
+            // Handle base64 image
+            String base64String = imageData;
+            if (imageData.contains(',')) {
+              base64String = imageData.split(',')[1];
+            }
+            return CircleAvatar(
+              radius: radius,
+              backgroundImage: MemoryImage(base64Decode(base64String)),
+              onBackgroundImageError: (_, __) {},
+              child: null,
+            );
+          } else {
+            // Handle network URL (fallback for existing images)
+            return CircleAvatar(
+              radius: radius,
+              backgroundImage: NetworkImage(imageData),
+              onBackgroundImageError: (_, __) {},
+              child: null,
+            );
+          }
+        } catch (e) {
+          return CircleAvatar(
+            radius: radius,
+            child: Text(
+              userName.isNotEmpty ? userName[0].toUpperCase() : 'U',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: radius * 0.7,
+              ),
+            ),
+          );
+        }
+      },
+    );
+  }
+
+  Widget _buildCurrentUserAvatar() {
+    if (_currentUser?.profilePicture == null) {
+      return const CircleAvatar(
+        radius: 18,
+        child: Icon(Icons.person, size: 18),
+      );
+    }
+
+    try {
+      final imageData = _currentUser!.profilePicture!;
+
+      // Check if it's a base64 string (doesn't start with http)
+      if (!imageData.startsWith('http')) {
+        // Handle base64 image
+        String base64String = imageData;
+        if (imageData.contains(',')) {
+          base64String = imageData.split(',')[1];
+        }
+        return CircleAvatar(
+          radius: 18,
+          backgroundImage: MemoryImage(base64Decode(base64String)),
+          onBackgroundImageError: (_, __) {},
+          child: null,
+        );
+      } else {
+        // Handle network URL (fallback for existing images)
+        return CircleAvatar(
+          radius: 18,
+          backgroundImage: NetworkImage(imageData),
+          onBackgroundImageError: (_, __) {},
+          child: null,
+        );
+      }
+    } catch (e) {
+      return const CircleAvatar(
+        radius: 18,
+        child: Icon(Icons.person, size: 18),
+      );
     }
   }
 
@@ -118,14 +285,10 @@ class _CommentsScreenState extends State<CommentsScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
+                _buildUserAvatar(
+                  widget.post.userId,
+                  widget.post.userName,
                   radius: 20,
-                  child: Text(
-                    widget.post.userName.isNotEmpty
-                        ? widget.post.userName[0].toUpperCase()
-                        : 'U',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -195,17 +358,9 @@ class _CommentsScreenState extends State<CommentsScreen> {
                   itemBuilder: (context, index) {
                     final comment = comments[index];
                     return ListTile(
-                      leading: CircleAvatar(
-                        radius: 18,
-                        child: Text(
-                          comment.userName.isNotEmpty
-                              ? comment.userName[0].toUpperCase()
-                              : 'U',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
+                      leading: _buildUserAvatar(
+                        comment.userId,
+                        comment.userName,
                       ),
                       title: Text(
                         comment.userName,
@@ -232,6 +387,13 @@ class _CommentsScreenState extends State<CommentsScreen> {
                           ),
                         ],
                       ),
+                      trailing: widget.currentUserId == comment.userId
+                          ? IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () =>
+                                  _deleteComment(comment.commentId),
+                            )
+                          : null,
                     );
                   },
                 );
@@ -247,15 +409,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
             ),
             child: Row(
               children: [
-                CircleAvatar(
-                  radius: 18,
-                  backgroundImage: _currentUser?.profilePicture != null
-                      ? NetworkImage(_currentUser!.profilePicture!)
-                      : null,
-                  child: _currentUser?.profilePicture == null
-                      ? const Icon(Icons.person, size: 18)
-                      : null,
-                ),
+                _buildCurrentUserAvatar(),
                 const SizedBox(width: 12),
                 Expanded(
                   child: TextField(

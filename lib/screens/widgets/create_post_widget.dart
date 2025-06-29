@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
@@ -24,7 +24,7 @@ class _CreatePostWidgetState extends State<CreatePostWidget> {
   final DatabaseService _databaseService = DatabaseService();
   final AuthService _authService = AuthService();
   final ImagePicker _imagePicker = ImagePicker();
-  File? _selectedImage;
+  String? _selectedImageBase64;
   bool _isLoading = false;
 
   @override
@@ -43,8 +43,12 @@ class _CreatePostWidgetState extends State<CreatePostWidget> {
       );
 
       if (image != null) {
+        // Convert image to base64
+        final bytes = await image.readAsBytes();
+        final base64String = base64Encode(bytes);
+
         setState(() {
-          _selectedImage = File(image.path);
+          _selectedImageBase64 = base64String;
         });
       }
     } catch (e) {
@@ -84,7 +88,7 @@ class _CreatePostWidgetState extends State<CreatePostWidget> {
               user.email ??
               'Unknown User',
           _textController.text.trim(),
-          _selectedImage,
+          _selectedImageBase64,
         );
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -118,7 +122,7 @@ class _CreatePostWidgetState extends State<CreatePostWidget> {
         color: Theme.of(context).cardColor,
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
+            color: Colors.grey.withValues(alpha:0.1),
             spreadRadius: 1,
             blurRadius: 3,
           ),
@@ -143,7 +147,7 @@ class _CreatePostWidgetState extends State<CreatePostWidget> {
             ),
           ),
           // Selected Image Preview
-          if (_selectedImage != null) ...[
+          if (_selectedImageBase64 != null) ...[
             const SizedBox(height: 10),
             Container(
               height: 60,
@@ -151,7 +155,7 @@ class _CreatePostWidgetState extends State<CreatePostWidget> {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
                 image: DecorationImage(
-                  image: FileImage(_selectedImage!),
+                  image: MemoryImage(base64Decode(_selectedImageBase64!)),
                   fit: BoxFit.cover,
                 ),
               ),
@@ -168,7 +172,7 @@ class _CreatePostWidgetState extends State<CreatePostWidget> {
                       ),
                       onPressed: () {
                         setState(() {
-                          _selectedImage = null;
+                          _selectedImageBase64 = null;
                         });
                       },
                     ),

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:convert';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../models/user_model.dart';
@@ -36,7 +38,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadUserData() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-      print('Profile Screen: Current user: ${user?.uid}');
       if (user != null) {
         final userData = await _authService.getUserData(user.uid);
         if (userData != null) {
@@ -45,19 +46,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _isLoading = false;
           });
         } else {
-          print('Profile Screen: No user data found');
           setState(() {
             _isLoading = false;
           });
         }
       } else {
-        print('Profile Screen: No current user');
         setState(() {
           _isLoading = false;
         });
       }
     } catch (e) {
-      print('Profile Screen Error: $e');
       setState(() {
         _isLoading = false;
       });
@@ -100,13 +98,136 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _updateProfilePicture() async {
-    // Profile picture upload functionality temporarily disabled
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Profile picture upload feature coming soon!'),
-        backgroundColor: Colors.blue,
-      ),
-    );
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 60,
+        maxWidth: 400,
+        maxHeight: 400,
+      );
+
+      if (pickedFile != null) {
+        // Show loading dialog
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) =>
+              const Center(child: CircularProgressIndicator()),
+        );
+
+        // Convert image to base64
+        final bytes = await pickedFile.readAsBytes();
+
+        // Check file size (limit to 1MB for profile pictures)
+        if (bytes.length > 1024 * 1024) {
+          Navigator.pop(context); // Close loading dialog
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Image too large. Please select a smaller image.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+
+        final base64String = base64Encode(bytes);
+
+        // Upload using the new base64 method
+        final imageUrl = await _databaseService.uploadProfilePictureBase64(
+          base64String,
+        );
+
+        // Update user profile with new image
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          await _databaseService.updateUserProfile(user.uid, {
+            'profilePicture': imageUrl,
+          });
+
+          // Reload user data to show updated profile picture
+          await _loadUserData();
+        }
+
+        Navigator.pop(context); // Close loading dialog
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile picture updated successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      Navigator.pop(context); // Close loading dialog if open
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating profile picture: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Widget _buildProfileImage() {
+    if (_currentUser?.profilePicture == null) {
+      return Icon(
+        Icons.person,
+        size: 60,
+        color: Theme.of(context).primaryColor,
+      );
+    }
+
+    try {
+      final imageData = _currentUser!.profilePicture!;
+
+      // Check if it's a base64 string (doesn't start with http)
+      if (!imageData.startsWith('http')) {
+        // Handle base64 image
+        String base64String = imageData;
+        if (imageData.contains(',')) {
+          base64String = imageData.split(',')[1];
+        }
+        return ClipOval(
+          child: Image.memory(
+            base64Decode(base64String),
+            width: 112,
+            height: 112,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => Icon(
+              Icons.person,
+              size: 60,
+              color: Theme.of(context).primaryColor,
+            ),
+          ),
+        );
+      } else {
+        // Handle network URL (fallback for existing images)
+        return ClipOval(
+          child: Image.network(
+            imageData,
+            width: 112,
+            height: 112,
+            fit: BoxFit.cover,
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) return child;
+              return const CircularProgressIndicator();
+            },
+            errorBuilder: (context, error, stackTrace) => Icon(
+              Icons.person,
+              size: 60,
+              color: Theme.of(context).primaryColor,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      return Icon(
+        Icons.person,
+        size: 60,
+        color: Theme.of(context).primaryColor,
+      );
+    }
   }
 
   @override
@@ -153,7 +274,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         end: Alignment.bottomCenter,
                         colors: [
                           Theme.of(context).primaryColor,
-                          Theme.of(context).primaryColor.withOpacity(0.8),
+                          Theme.of(context).primaryColor.withValues(alpha: 0.8),
                         ],
                       ),
                     ),
@@ -165,15 +286,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           end: Alignment.bottomCenter,
                           colors: [
                             Colors.transparent,
-                            Theme.of(
-                              context,
-                            ).scaffoldBackgroundColor.withOpacity(0.1),
+                            Colors.black.withValues(alpha: 0.1),
                           ],
                         ),
                       ),
                       child: Column(
                         children: [
-                          // Enhanced Profile Picture with Shadow
+                          // Enhanced Profile Picture with Camera Icon
                           GestureDetector(
                             onTap: _updateProfilePicture,
                             child: Container(
@@ -181,7 +300,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 shape: BoxShape.circle,
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.black.withOpacity(0.3),
+                                    color: Colors.black.withValues(alpha: 0.3),
                                     blurRadius: 15,
                                     spreadRadius: 5,
                                   ),
@@ -194,25 +313,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     backgroundColor: Colors.white,
                                     child: CircleAvatar(
                                       radius: 56,
-                                      backgroundImage:
-                                          _currentUser!.profilePicture != null
-                                          ? NetworkImage(
-                                              _currentUser!.profilePicture!,
-                                            )
-                                          : null,
                                       backgroundColor: Theme.of(
                                         context,
-                                      ).primaryColor.withOpacity(0.1),
-                                      child:
-                                          _currentUser!.profilePicture == null
-                                          ? Icon(
-                                              Icons.person,
-                                              size: 60,
-                                              color: Theme.of(
-                                                context,
-                                              ).primaryColor,
-                                            )
-                                          : null,
+                                      ).primaryColor.withValues(alpha: 0.1),
+                                      child: _buildProfileImage(),
                                     ),
                                   ),
                                   Positioned(
@@ -225,8 +329,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                         shape: BoxShape.circle,
                                         boxShadow: [
                                           BoxShadow(
-                                            color: Colors.black.withOpacity(
-                                              0.2,
+                                            color: Colors.black.withValues(
+                                              alpha: 0.2,
                                             ),
                                             blurRadius: 8,
                                             spreadRadius: 1,
@@ -252,47 +356,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               fontSize: 28,
                               fontWeight: FontWeight.bold,
                               color: Colors.white,
-                              shadows: [
-                                Shadow(
-                                  color: Colors.black26,
-                                  blurRadius: 2,
-                                  offset: Offset(0, 1),
-                                ),
-                              ],
+                              letterSpacing: 0.5,
                             ),
                           ),
                           const SizedBox(height: 8),
-                          // Enhanced Email with Better Styling
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.3),
+                          // Enhanced Email with Icon
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.email_outlined,
+                                color: Colors.white70,
+                                size: 16,
                               ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.email_outlined,
-                                  color: Colors.white,
-                                  size: 16,
+                              const SizedBox(width: 8),
+                              Text(
+                                _currentUser!.email,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.white70,
+                                  fontWeight: FontWeight.w500,
                                 ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  _currentUser!.email,
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 16),
                           // Enhanced Join Date with Icon
@@ -300,16 +386,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               const Icon(
-                                Icons.calendar_today,
+                                Icons.calendar_today_outlined,
                                 color: Colors.white70,
                                 size: 16,
                               ),
                               const SizedBox(width: 8),
                               Text(
-                                'Member since ${_currentUser!.formattedJoinDate}',
+                                'Joined ${_currentUser!.createdAt?.year ?? 'Unknown'}',
                                 style: const TextStyle(
                                   fontSize: 14,
                                   color: Colors.white70,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
                             ],
@@ -335,17 +422,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 _currentUser!.uid,
                               ),
                               builder: (context, snapshot) {
+                                final count = snapshot.data?.length ?? 0;
                                 return Text(
-                                  '${snapshot.data?.length ?? 0}',
+                                  count.toString(),
                                   style: const TextStyle(
-                                    fontSize: 24,
+                                    fontSize: 20,
                                     fontWeight: FontWeight.bold,
                                     color: Colors.white,
                                   ),
                                 );
                               },
                             ),
-                            Icons.article_outlined,
+                            Icons.article,
                             Colors.blue,
                           ),
                         ),
@@ -364,16 +452,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   (sum, post) => sum + post.likes.length,
                                 );
                                 return Text(
-                                  '$totalLikes',
+                                  totalLikes.toString(),
                                   style: const TextStyle(
-                                    fontSize: 24,
+                                    fontSize: 20,
                                     fontWeight: FontWeight.bold,
                                     color: Colors.white,
                                   ),
                                 );
                               },
                             ),
-                            Icons.favorite_outline,
+                            Icons.favorite,
                             Colors.red,
                           ),
                         ),
@@ -392,16 +480,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   (sum, post) => sum + post.commentCount,
                                 );
                                 return Text(
-                                  '$totalComments',
+                                  totalComments.toString(),
                                   style: const TextStyle(
-                                    fontSize: 24,
+                                    fontSize: 20,
                                     fontWeight: FontWeight.bold,
                                     color: Colors.white,
                                   ),
                                 );
                               },
                             ),
-                            Icons.comment_outlined,
+                            Icons.comment,
                             Colors.green,
                           ),
                         ),
@@ -419,7 +507,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           end: Alignment.bottomRight,
                           colors: [
                             Theme.of(context).cardColor,
-                            Theme.of(context).cardColor.withOpacity(0.8),
+                            Theme.of(context).cardColor.withValues(alpha: 0.8),
                           ],
                         ),
                         borderRadius: BorderRadius.circular(20),
@@ -427,7 +515,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           BoxShadow(
                             color: Theme.of(
                               context,
-                            ).primaryColor.withOpacity(0.1),
+                            ).primaryColor.withValues(alpha: 0.1),
                             blurRadius: 15,
                             spreadRadius: 3,
                           ),
@@ -435,7 +523,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         border: Border.all(
                           color: Theme.of(
                             context,
-                          ).primaryColor.withOpacity(0.1),
+                          ).primaryColor.withValues(alpha: 0.1),
                           width: 1,
                         ),
                       ),
@@ -446,27 +534,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           children: [
                             Row(
                               children: [
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: Theme.of(
-                                      context,
-                                    ).primaryColor.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Icon(
-                                    Icons.person_outline,
-                                    color: Theme.of(context).primaryColor,
-                                    size: 24,
-                                  ),
+                                Icon(
+                                  Icons.info_outline,
+                                  color: Theme.of(context).primaryColor,
+                                  size: 24,
                                 ),
-                                const SizedBox(width: 16),
-                                Text(
+                                const SizedBox(width: 12),
+                                const Text(
                                   'Personal Information',
                                   style: TextStyle(
                                     fontSize: 20,
                                     fontWeight: FontWeight.bold,
-                                    color: Theme.of(context).primaryColor,
                                   ),
                                 ),
                               ],
@@ -474,7 +552,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             const SizedBox(height: 20),
                             if (_currentUser!.phoneNumber != null)
                               _buildEnhancedInfoRow(
-                                Icons.phone_outlined,
+                                Icons.phone,
                                 'Phone Number',
                                 _currentUser!.phoneNumber!,
                                 Colors.green,
@@ -483,10 +561,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               const SizedBox(height: 16),
                             if (_currentUser!.city != null)
                               _buildEnhancedInfoRow(
-                                Icons.location_city_outlined,
+                                Icons.location_on,
                                 'City',
                                 _currentUser!.city!,
-                                Colors.blue,
+                                Colors.orange,
                               ),
                             if (_currentUser!.city != null)
                               const SizedBox(height: 8),
@@ -505,13 +583,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         BoxShadow(
                           color: Theme.of(
                             context,
-                          ).primaryColor.withOpacity(0.1),
+                          ).primaryColor.withValues(alpha: 0.1),
                           blurRadius: 15,
                           spreadRadius: 3,
                         ),
                       ],
                       border: Border.all(
-                        color: Theme.of(context).primaryColor.withOpacity(0.1),
+                        color: Theme.of(
+                          context,
+                        ).primaryColor.withValues(alpha: 0.1),
                         width: 1,
                       ),
                     ),
@@ -523,11 +603,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           padding: const EdgeInsets.all(20),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
                               colors: [
                                 Theme.of(context).primaryColor,
-                                Theme.of(context).primaryColor.withOpacity(0.8),
+                                Theme.of(
+                                  context,
+                                ).primaryColor.withValues(alpha: 0.8),
                               ],
                             ),
                             borderRadius: const BorderRadius.only(
@@ -540,13 +620,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(10),
+                                  color: Colors.white.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: const Icon(
-                                  Icons.article_outlined,
+                                  Icons.article,
                                   color: Colors.white,
-                                  size: 24,
+                                  size: 20,
                                 ),
                               ),
                               const SizedBox(width: 16),
@@ -563,45 +643,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 12,
-                                  vertical: 8,
+                                  vertical: 6,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(20),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.1),
-                                      blurRadius: 4,
-                                      spreadRadius: 1,
-                                    ),
-                                  ],
+                                  color: Colors.white.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(15),
                                 ),
                                 child: StreamBuilder<List<PostModel>>(
                                   stream: _databaseService.getUserPosts(
                                     _currentUser!.uid,
                                   ),
                                   builder: (context, snapshot) {
-                                    final posts = snapshot.data ?? [];
-                                    return Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.dashboard,
-                                          color: Theme.of(context).primaryColor,
-                                          size: 16,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          '${posts.length}',
-                                          style: TextStyle(
-                                            color: Theme.of(
-                                              context,
-                                            ).primaryColor,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 16,
-                                          ),
-                                        ),
-                                      ],
+                                    final count = snapshot.data?.length ?? 0;
+                                    return Text(
+                                      count.toString(),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
                                     );
                                   },
                                 ),
@@ -629,17 +689,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               return Padding(
                                 padding: const EdgeInsets.all(20),
                                 child: Center(
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Icon(
-                                        Icons.error_outline,
-                                        size: 60,
-                                        color: Colors.red,
-                                      ),
-                                      const SizedBox(height: 16),
-                                      Text('Error: ${snapshot.error}'),
-                                    ],
+                                  child: Text(
+                                    'Error loading posts: ${snapshot.error}',
+                                    style: const TextStyle(color: Colors.red),
                                   ),
                                 ),
                               );
@@ -651,81 +703,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               return Container(
                                 padding: const EdgeInsets.all(40),
                                 child: Column(
-                                  mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(20),
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          colors: [
-                                            Theme.of(
-                                              context,
-                                            ).primaryColor.withOpacity(0.1),
-                                            Theme.of(
-                                              context,
-                                            ).primaryColor.withOpacity(0.05),
-                                          ],
-                                        ),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: Icon(
-                                        Icons.post_add,
-                                        size: 48,
-                                        color: Theme.of(context).primaryColor,
-                                      ),
+                                    Icon(
+                                      Icons.article_outlined,
+                                      size: 64,
+                                      color: Colors.grey[400],
                                     ),
-                                    const SizedBox(height: 24),
+                                    const SizedBox(height: 16),
                                     Text(
-                                      'No Posts Yet',
+                                      'No posts yet',
                                       style: TextStyle(
-                                        fontSize: 22,
+                                        fontSize: 18,
                                         fontWeight: FontWeight.bold,
-                                        color: Theme.of(context).primaryColor,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Text(
-                                      'Share your thoughts with the world!\nCreate your first post to get started.',
-                                      style: TextStyle(
-                                        fontSize: 16,
                                         color: Colors.grey[600],
-                                        height: 1.5,
                                       ),
-                                      textAlign: TextAlign.center,
                                     ),
-                                    const SizedBox(height: 24),
-                                    ElevatedButton.icon(
-                                      onPressed: () {
-                                        Navigator.pop(
-                                          context,
-                                        ); // Go back to home
-                                      },
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Theme.of(
-                                          context,
-                                        ).primaryColor,
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 24,
-                                          vertical: 12,
-                                        ),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            25,
-                                          ),
-                                        ),
-                                        elevation: 8,
-                                        shadowColor: Theme.of(
-                                          context,
-                                        ).primaryColor.withOpacity(0.3),
-                                      ),
-                                      icon: const Icon(Icons.home_outlined),
-                                      label: const Text(
-                                        'Go to Home',
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w600,
-                                        ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'Start sharing your thoughts!',
+                                      style: TextStyle(
+                                        color: Colors.grey[500],
+                                        fontSize: 14,
                                       ),
                                     ),
                                   ],
@@ -737,253 +735,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               padding: const EdgeInsets.all(16),
                               child: Column(
                                 children: List.generate(posts.length, (index) {
-                                  final post = posts[index];
                                   return Container(
-                                    margin: const EdgeInsets.only(bottom: 20),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context).cardColor,
-                                      borderRadius: BorderRadius.circular(16),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Theme.of(
-                                            context,
-                                          ).primaryColor.withOpacity(0.08),
-                                          blurRadius: 12,
-                                          spreadRadius: 2,
-                                          offset: const Offset(0, 4),
-                                        ),
-                                      ],
-                                      border: Border.all(
-                                        color: Theme.of(
-                                          context,
-                                        ).primaryColor.withOpacity(0.1),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: Column(
-                                      children: [
-                                        PostCard(
-                                          post: post,
-                                          currentUserId: _currentUser!.uid,
-                                        ),
-                                        // Enhanced Comments Section
-                                        StreamBuilder<List<CommentModel>>(
-                                          stream: _databaseService.getComments(
-                                            post.postId,
-                                          ),
-                                          builder: (context, commentSnapshot) {
-                                            final comments =
-                                                commentSnapshot.data ?? [];
-                                            if (comments.isEmpty)
-                                              return const SizedBox.shrink();
-
-                                            return Container(
-                                              margin: const EdgeInsets.fromLTRB(
-                                                12,
-                                                0,
-                                                12,
-                                                12,
-                                              ),
-                                              padding: const EdgeInsets.all(16),
-                                              decoration: BoxDecoration(
-                                                gradient: LinearGradient(
-                                                  begin: Alignment.topLeft,
-                                                  end: Alignment.bottomRight,
-                                                  colors:
-                                                      Theme.of(
-                                                            context,
-                                                          ).brightness ==
-                                                          Brightness.dark
-                                                      ? [
-                                                          Colors.grey[800]!
-                                                              .withOpacity(0.6),
-                                                          Colors.grey[900]!
-                                                              .withOpacity(0.4),
-                                                        ]
-                                                      : [
-                                                          Colors.grey[50]!,
-                                                          Colors.grey[100]!
-                                                              .withOpacity(0.8),
-                                                        ],
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(12),
-                                                border: Border.all(
-                                                  color: Theme.of(context)
-                                                      .primaryColor
-                                                      .withOpacity(0.1),
-                                                  width: 1,
-                                                ),
-                                              ),
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Row(
-                                                    children: [
-                                                      Icon(
-                                                        Icons
-                                                            .chat_bubble_outline,
-                                                        size: 16,
-                                                        color: Theme.of(
-                                                          context,
-                                                        ).primaryColor,
-                                                      ),
-                                                      const SizedBox(width: 8),
-                                                      Text(
-                                                        'Comments (${comments.length})',
-                                                        style: TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                          fontSize: 14,
-                                                          color: Theme.of(
-                                                            context,
-                                                          ).primaryColor,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                  const SizedBox(height: 12),
-                                                  ...comments
-                                                      .take(3)
-                                                      .map(
-                                                        (comment) => Container(
-                                                          margin:
-                                                              const EdgeInsets.only(
-                                                                bottom: 8,
-                                                              ),
-                                                          padding:
-                                                              const EdgeInsets.all(
-                                                                12,
-                                                              ),
-                                                          decoration: BoxDecoration(
-                                                            color:
-                                                                Theme.of(
-                                                                      context,
-                                                                    ).cardColor
-                                                                    .withOpacity(
-                                                                      0.8,
-                                                                    ),
-                                                            borderRadius:
-                                                                BorderRadius.circular(
-                                                                  8,
-                                                                ),
-                                                            border: Border.all(
-                                                              color: Colors.grey
-                                                                  .withOpacity(
-                                                                    0.2,
-                                                                  ),
-                                                              width: 0.5,
-                                                            ),
-                                                          ),
-                                                          child: Row(
-                                                            crossAxisAlignment:
-                                                                CrossAxisAlignment
-                                                                    .start,
-                                                            children: [
-                                                              CircleAvatar(
-                                                                radius: 12,
-                                                                backgroundColor:
-                                                                    Theme.of(
-                                                                          context,
-                                                                        )
-                                                                        .primaryColor
-                                                                        .withOpacity(
-                                                                          0.1,
-                                                                        ),
-                                                                child: Text(
-                                                                  comment
-                                                                          .userName
-                                                                          .isNotEmpty
-                                                                      ? comment
-                                                                            .userName[0]
-                                                                            .toUpperCase()
-                                                                      : 'U',
-                                                                  style: TextStyle(
-                                                                    fontSize:
-                                                                        10,
-                                                                    fontWeight:
-                                                                        FontWeight
-                                                                            .bold,
-                                                                    color: Theme.of(
-                                                                      context,
-                                                                    ).primaryColor,
-                                                                  ),
-                                                                ),
-                                                              ),
-                                                              const SizedBox(
-                                                                width: 8,
-                                                              ),
-                                                              Expanded(
-                                                                child: Column(
-                                                                  crossAxisAlignment:
-                                                                      CrossAxisAlignment
-                                                                          .start,
-                                                                  children: [
-                                                                    Text(
-                                                                      comment
-                                                                          .userName,
-                                                                      style: const TextStyle(
-                                                                        fontWeight:
-                                                                            FontWeight.bold,
-                                                                        fontSize:
-                                                                            12,
-                                                                      ),
-                                                                    ),
-                                                                    const SizedBox(
-                                                                      height: 2,
-                                                                    ),
-                                                                    Text(
-                                                                      comment
-                                                                          .text,
-                                                                      style: const TextStyle(
-                                                                        fontSize:
-                                                                            12,
-                                                                      ),
-                                                                    ),
-                                                                  ],
-                                                                ),
-                                                              ),
-                                                            ],
-                                                          ),
-                                                        ),
-                                                      )
-                                                      .toList(),
-                                                  if (comments.length > 3)
-                                                    Container(
-                                                      padding:
-                                                          const EdgeInsets.all(
-                                                            8,
-                                                          ),
-                                                      decoration: BoxDecoration(
-                                                        color: Theme.of(context)
-                                                            .primaryColor
-                                                            .withOpacity(0.05),
-                                                        borderRadius:
-                                                            BorderRadius.circular(
-                                                              6,
-                                                            ),
-                                                      ),
-                                                      child: Text(
-                                                        '... and ${comments.length - 3} more comments',
-                                                        style: TextStyle(
-                                                          fontSize: 11,
-                                                          color: Theme.of(
-                                                            context,
-                                                          ).primaryColor,
-                                                          fontStyle:
-                                                              FontStyle.italic,
-                                                          fontWeight:
-                                                              FontWeight.w500,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                ],
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                      ],
+                                    margin: const EdgeInsets.only(bottom: 16),
+                                    child: PostCard(
+                                      post: posts[index],
+                                      currentUserId: _currentUser!.uid,
                                     ),
                                   );
                                 }),
@@ -1009,16 +765,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
+        color: color.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.2), width: 1),
+        border: Border.all(color: color.withValues(alpha: 0.2), width: 1),
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(icon, size: 20, color: color),
@@ -1064,12 +820,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [color, color.withOpacity(0.8)],
+          colors: [color, color.withValues(alpha: 0.8)],
         ),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.3),
+            color: color.withValues(alpha: 0.3),
             blurRadius: 8,
             spreadRadius: 1,
             offset: const Offset(0, 4),
@@ -1081,7 +837,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
+              color: Colors.white.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(icon, color: Colors.white, size: 20),

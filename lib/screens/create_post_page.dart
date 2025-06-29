@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
+import 'dart:convert';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -23,9 +23,10 @@ class _CreatePostPageState extends State<CreatePostPage> {
   final _textController = TextEditingController();
   final DatabaseService _databaseService = DatabaseService();
   final AuthService _authService = AuthService();
-  File? _selectedImage;
+  String? _selectedImageBase64;
   bool _isLoading = false;
   String? _userName;
+  String? _userProfilePicture;
 
   @override
   void initState() {
@@ -42,11 +43,12 @@ class _CreatePostPageState extends State<CreatePostPage> {
           setState(() {
             _userName =
                 userData?.fullName ?? user.displayName ?? user.email ?? 'User';
+            _userProfilePicture = userData?.profilePicture;
           });
         }
       }
     } catch (e) {
-      print('Error loading user name: $e');
+      // Handle error silently
     }
   }
 
@@ -60,13 +62,40 @@ class _CreatePostPageState extends State<CreatePostPage> {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(
       source: ImageSource.gallery,
-      imageQuality: 70,
+      imageQuality: 50, // Reduced quality for smaller file size
+      maxWidth: 800, // Reduced max width
+      maxHeight: 800, // Reduced max height
     );
 
     if (pickedFile != null) {
-      setState(() {
-        _selectedImage = File(pickedFile.path);
-      });
+      try {
+        // Convert image to base64
+        final bytes = await pickedFile.readAsBytes();
+
+        // Check file size before conversion (limit to 2MB)
+        if (bytes.length > 2 * 1024 * 1024) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Image too large. Please select a smaller image.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+
+        final base64String = base64Encode(bytes);
+
+        setState(() {
+          _selectedImageBase64 = base64String;
+        });
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error processing image: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -100,7 +129,7 @@ class _CreatePostPageState extends State<CreatePostPage> {
         user.uid,
         userName,
         _textController.text.trim(),
-        _selectedImage,
+        _selectedImageBase64,
       );
 
       if (!mounted) return;
@@ -130,6 +159,44 @@ class _CreatePostPageState extends State<CreatePostPage> {
     }
   }
 
+  Widget _buildUserAvatar() {
+    if (_userProfilePicture == null) {
+      return CircleAvatar(
+        backgroundImage: FirebaseAuth.instance.currentUser?.photoURL != null
+            ? NetworkImage(FirebaseAuth.instance.currentUser!.photoURL!)
+            : null,
+        child: FirebaseAuth.instance.currentUser?.photoURL == null
+            ? const Icon(Icons.person)
+            : null,
+      );
+    }
+
+    try {
+      // Check if it's a base64 string (doesn't start with http)
+      if (!_userProfilePicture!.startsWith('http')) {
+        // Handle base64 image
+        String base64String = _userProfilePicture!;
+        if (_userProfilePicture!.contains(',')) {
+          base64String = _userProfilePicture!.split(',')[1];
+        }
+        return CircleAvatar(
+          backgroundImage: MemoryImage(base64Decode(base64String)),
+          onBackgroundImageError: (_, __) {},
+          child: null,
+        );
+      } else {
+        // Handle network URL (fallback for existing images)
+        return CircleAvatar(
+          backgroundImage: NetworkImage(_userProfilePicture!),
+          onBackgroundImageError: (_, __) {},
+          child: null,
+        );
+      }
+    } catch (e) {
+      return const CircleAvatar(child: Icon(Icons.person));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -142,17 +209,7 @@ class _CreatePostPageState extends State<CreatePostPage> {
             // User info section
             Row(
               children: [
-                CircleAvatar(
-                  backgroundImage:
-                      FirebaseAuth.instance.currentUser?.photoURL != null
-                      ? NetworkImage(
-                          FirebaseAuth.instance.currentUser!.photoURL!,
-                        )
-                      : null,
-                  child: FirebaseAuth.instance.currentUser?.photoURL == null
-                      ? const Icon(Icons.person)
-                      : null,
-                ),
+                _buildUserAvatar(),
                 const SizedBox(width: 12),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -191,7 +248,7 @@ class _CreatePostPageState extends State<CreatePostPage> {
             ),
 
             // Selected image preview
-            if (_selectedImage != null) ...[
+            if (_selectedImageBase64 != null) ...[
               const SizedBox(height: 16),
               Stack(
                 children: [
@@ -201,7 +258,7 @@ class _CreatePostPageState extends State<CreatePostPage> {
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(12),
                       image: DecorationImage(
-                        image: FileImage(_selectedImage!),
+                        image: MemoryImage(base64Decode(_selectedImageBase64!)),
                         fit: BoxFit.cover,
                       ),
                     ),
@@ -212,7 +269,7 @@ class _CreatePostPageState extends State<CreatePostPage> {
                     child: GestureDetector(
                       onTap: () {
                         setState(() {
-                          _selectedImage = null;
+                          _selectedImageBase64 = null;
                         });
                       },
                       child: Container(

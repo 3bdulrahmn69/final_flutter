@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class ConfigurationDialog extends StatelessWidget {
-  const ConfigurationDialog({Key? key}) : super(key: key);
+  const ConfigurationDialog({super.key});
 
   @override
   Widget build(BuildContext context) {
